@@ -4,6 +4,7 @@ import in.simplifymoney.ledgersync.ingest.IngestService;
 import in.simplifymoney.ledgersync.json.Json;
 import in.simplifymoney.ledgersync.parse.Parsers;
 import in.simplifymoney.ledgersync.report.Reports;
+import in.simplifymoney.ledgersync.store.MongoDocumentStore;
 import in.simplifymoney.ledgersync.store.SqlLedgerStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,6 +15,8 @@ import java.nio.file.Path;
  *   migrate                  apply db/migration/*.sql
  *   ingest  <corpus.jsonl>   read a corpus into the ledger
  *   report  <out-dir>        write ledger.json, summary.json, reconciliation.json
+ *   backfill                 migrate transactions from SQL to DocumentStore
+ *   check                    verify consistency between SQL and DocumentStore
  */
 public final class App {
 
@@ -22,7 +25,7 @@ public final class App {
 
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
-            System.err.println("usage: migrate | ingest <corpus.jsonl> | report <out-dir>");
+            System.err.println("usage: migrate | ingest <corpus.jsonl> | report <out-dir> | backfill | check");
             System.exit(2);
         }
         Files.createDirectories(DB.getParent());
@@ -57,6 +60,28 @@ public final class App {
                     Files.writeString(out.resolve("reconciliation.json"),
                             Json.writePretty(Reports.reconciliation(ledger)));
                     System.out.println("wrote 3 files to " + out);
+                }
+            }
+            case "backfill" -> {
+                try (SqlLedgerStore store = new SqlLedgerStore(DB);
+                     MongoDocumentStore docStore = new MongoDocumentStore()) {
+                    var result = new in.simplifymoney.ledgersync.store.Backfill(store, docStore).run();
+                    System.out.printf("Backfill complete: read=%d, written=%d, skipped=%d, totalInStore=%d%n",
+                            result.read(), result.written(), result.skipped(), docStore.count());
+                }
+            }
+            case "check" -> {
+                try (SqlLedgerStore store = new SqlLedgerStore(DB);
+                     MongoDocumentStore docStore = new MongoDocumentStore()) {
+                    var divergences = new in.simplifymoney.ledgersync.store.ConsistencyChecker(store, docStore).check();
+                    if (divergences.isEmpty()) {
+                        System.out.println("STORES ARE CONSISTENT: SQL and DocumentStore contain equivalent canonical transactions.");
+                    } else {
+                        System.out.printf("DIVERGENCES FOUND: %d%n", divergences.size());
+                        for (var d : divergences) {
+                            System.out.printf("  - %s | SQL: %s | DOC: %s%n", d.what(), d.inSql(), d.inDocuments());
+                        }
+                    }
                 }
             }
             default -> {
