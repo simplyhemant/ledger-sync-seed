@@ -342,6 +342,64 @@ canonicalId = "txn_" + sha256(accountLast4 + "|" + occurredAtInstant + "|" + dir
    - *Choice*: Zero changes made to `NormalizedTxn.java`, `Category.java`, or `NormalizedTxnContractTest.java`.
    - *Rationale*: Enforces compliance with strict scoring constraints.
 
+10. **Decision: Inter-Account Transfer Pairing for TRANSFER Classification**
+   - *Choice*: Categorized transfers by dynamically pairing debit legs on one user savings account with credit legs on another user savings account matching the exact amount within a short time window and matching remarks (`PARAG KAPOOR`), rather than treating any message mentioning "SELF" as a transfer.
+   - *Alternative Considered*: Classifying any message containing "SELF" as `TRANSFER`.
+   - *Rationale*: In `corpus-a`, `NEFT INWARD SELF` on account 9075 (₹18,000) was money transferred from an outside account not tracked in this ledger, representing real inbound income. Only paired transfers between 4821 and 9075 represented internal movement where neither spend nor income should be inflated.
+
+---
+
+## What the Data Made Us Decide
+
+The corpus forces several critical design choices not specified in the problem document:
+
+1. **Multi-Channel Evidence Merging (SMS + Email)**:
+   - *What we saw*: The phone uploads both SMS and email notifications for the same transaction (e.g. an SMS from `AD-HDFCBK-S` and an email from `alerts@hdfcbank.net` for a ₹45,000 salary credit).
+   - *What we chose*: Rather than creating two ledger entries or discarding the email, we canonicalized transactions on `(account_last4, occurred_at, direction, amount, merchant)` and merged both message IDs into `source_message_ids`.
+2. **Delayed Duplicate Upload Batches**:
+   - *What we saw*: Lines 338–522 in `corpus-a.jsonl` are full duplicate re-uploads of messages from July, uploaded on August 15th with brand new `message_id`s.
+   - *What we chose*: IngestService deduplicates against existing canonical transactions and appends new upload message IDs into `source_message_ids` without creating duplicate transactions or inflating totals.
+3. **Filtering Hostile & Non-Transaction Messages**:
+   - *What we saw*: The corpus contains phishing attempts from `VK-ICICIB` ("avoid debit of Rs.5126.00"), OTP alerts quoting amounts (`268880 is your OTP for txn of Rs.5160.00`), delivery notifications (`BP-DELHVY`, `AX-SWGGYX`), scheduled future e-mandates (`E-mandate! Rs.649.00 will be deducted on 22-07-26`), and balance alerts (`Avl Bal in a/c **9075 is Rs.50,862.08`).
+   - *What we chose*: Parsers strictly validate sender whitelist (`AD-HDFCBK-S`, `VM-ICICIB-T`, `alerts@hdfcbank.net`, `alerts@icicibank.com`) and require transactional syntax (completed debits/credits). All non-transactional messages are skipped.
+4. **What we would do with more time**:
+   - Implement fuzzy merchant clustering (e.g. equating `PVR CINEMAS` with `PVR-CINEMA`).
+   - Support asynchronous RTGS/NEFT settlement windows spanning across weekend boundary lags.
+   - Build a sliding-window streaming reconciliation engine for live event streams.
+
+---
+
+## AI Disclosure
+
+- **Tools Used**: AI assistant used for codebase inspection, drafting parser regex templates, and writing unit test boilerplate.
+- **Concrete Case Where AI Output Was Wrong/Worse**:
+  - *AI Initial Suggestion*: The AI initially suggested parsing ICICI SMS V2 using a greedy merchant regex:
+    ```java
+    // AI version:
+    Pattern.compile("Acct XX(?<acct>\\d{4}) (?<dir>Dr|Cr) INR (?<amount>[0-9,.]+) on (?<when>.+?); (?<merchant>.*) ref no");
+    ```
+    *Why it was broken*:
+    1. It strictly required `INR ` and failed on `Rs.` or integer amounts without decimal points (e.g., `ICICI Bank Acct XX9075 Dr INR 5 on 23-Jul-2026 18:41`).
+    2. `[0-9,.]+` greedily matched trailing periods or punctuation.
+    3. The AI failed to extract the stated balance `BalAvl Rs 55,083.81`, causing reconciliation verification to miss balance check data.
+  - *What Was Written Instead*:
+    ```java
+    // Engineer version:
+    private static final Pattern V2 = Pattern.compile(
+            "Acct XX(?<acct>\\d{4}) (?<dir>Dr|Cr) (?:INR|Rs\\.?)\\s*(?<amount>[0-9,]+(?:\\.[0-9]{1,2})?) "
+                    + "on (?<when>\\d{2}-\\w{3}-\\d{4} \\d{2}:\\d{2}); (?<merchant>.+?) ref no");
+    // Explicit stated balance extraction via Amounts.statedBalance(body):
+    Amounts.statedBalance(body);
+    ```
+
+---
+
+## What's Unfinished
+
+1. **Multi-Day Inter-Bank Transfer Settlement Window**: The transfer pairer currently matches inter-account transfers occurring within a 10-minute window. In slow banking networks, inter-bank transfers initiated late on a Friday evening may settle on Monday morning.
+2. **MongoDB Replica Set Cluster**: The current Docker Compose setup launches a single standalone MongoDB instance. For production high-availability and multi-document transactions, a multi-node replica set (`rs0`) configuration is recommended.
+3. **Automated Reconciliation Alert Webhooks**: When discrepancies are detected in `reconciliation.json`, the service currently logs and outputs them; adding automated Slack/PagerDuty webhook dispatching would be the next step.
+
 ---
 
 ## Known Limitations & Assumptions
@@ -349,4 +407,3 @@ canonicalId = "txn_" + sha256(accountLast4 + "|" + occurredAtInstant + "|" + dir
 1. **Transaction Timestamp Granularity**: Bank SMS typically report timestamps to the minute (`YYYY-MM-DD HH:mm`). Two identical transactions on the same account within the same minute for the exact same merchant and amount are treated as the same canonical transaction.
 2. **MongoDB Memory Usage**: For datasets exceeding millions of transactions, running totals aggregation benefits from pre-aggregated buckets or periodic rollups.
 3. **Local Docker Requirement**: Running `MongoDocumentStore` integration tests requires a running MongoDB daemon (`docker compose up -d`), whereas `InMemoryDocumentStore` executes tests in pure memory.
-
