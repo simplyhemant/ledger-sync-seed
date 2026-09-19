@@ -64,8 +64,7 @@ public final class EmailParser implements MessageParser {
     private OffsetDateTime parseDate(String raw) {
         for (DateTimeFormatter fmt : DATE_FORMATS) {
             try {
-                OffsetDateTime dt = OffsetDateTime.parse(raw, fmt);
-                return dt.withOffsetSameInstant(Dates.IST);
+                return OffsetDateTime.parse(raw, fmt);
             } catch (DateTimeParseException ignored) {
             }
         }

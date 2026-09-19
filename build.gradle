@@ -43,3 +43,12 @@ tasks.register('benchmark', JavaExec) {
     mainClass = 'in.simplifymoney.ledgersync.DocumentStoreBenchmark'
     classpath = sourceSets.test.runtimeClasspath
 }
+
+test {
+    useJUnitPlatform()
+
+    testLogging {
+        showStandardStreams = true
+        events "passed", "skipped", "failed", "standard_out", "standard_error"
+    }
+}

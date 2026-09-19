@@ -152,8 +152,6 @@ point, not a bug you have hit.
 
 ---
 
----
-
 ## Quickstart & Local Execution (Under 5 Minutes)
 
 ### Prerequisites
@@ -168,23 +166,34 @@ MongoDB 7.0 will start on `localhost:27017` with container healthchecks enabled.
 
 ### 2. Dependency-Free Smoke Check (Pure JDK)
 ```bash
+# On Linux/macOS:
 ./verify.sh
+
+# On Windows (PowerShell):
+.\verify.sh
 ```
 Compiles and executes `SelfCheck` with pure JDK 21, no network, no Gradle, and no external dependencies.
 
 ### 3. Run Test Suite
 ```bash
+# On Linux/macOS:
 ./gradlew test
+
+# On Windows:
+.\gradlew.bat test
 ```
 Executes all unit tests including frozen contract tests, incident regression tests, document store tests, backfill idempotency tests, and consistency checker tests.
 
-### 4. Database Migrations, Ingestion, Backfill & Consistency Checking
+### 4. Database Migrations, Ingestion, Reports, Backfill & Consistency Checking
 ```bash
 # Apply SQL migrations
 ./gradlew run --args="migrate"
 
 # Ingest corpus
 ./gradlew run --args="ingest fixtures/corpus-a.jsonl"
+
+# Generate report documents (ledger.json, summary.json, reconciliation.json)
+./gradlew run --args="report submission/"
 
 # Run idempotent Backfill (migrates SQL rows into MongoDB)
 ./gradlew run --args="backfill"
@@ -195,6 +204,7 @@ Executes all unit tests including frozen contract tests, incident regression tes
 # Run 100,000 transaction performance benchmark
 ./gradlew benchmark
 ```
+*(On Windows, use `.\gradlew.bat` instead of `./gradlew`)*
 
 ---
 

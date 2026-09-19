@@ -53,9 +53,6 @@ public final class IngestService {
 
         List<NormalizedTxn> canonicalTxns = buildCanonicalTransactions(parsedList);
 
-        System.out.println("parsed transactions = " + parsedList.size());
-        System.out.println("canonical transactions = " + canonicalTxns.size());
-
         Set<String> existingSignatures = new HashSet<>();
         for (NormalizedTxn existing : store.all()) {
             existingSignatures.add(signature(existing.accountLast4(), existing.occurredAt(),
@@ -107,21 +104,6 @@ public final class IngestService {
                     p.merchant().trim());
             grouped.computeIfAbsent(key, k -> new TreeSet<>()).add(p.sourceMessageId());
         }
-
-        // DEBUG: show transactions that are being merged
-        System.out.println("========================================");
-        System.out.println("GROUPED SIZE = " + grouped.size());
-        System.out.println("PARSED SIZE  = " + parsedList.size());
-
-        for (Map.Entry<TxnKey, Set<String>> entry : grouped.entrySet()) {
-            if (entry.getValue().size() > 1) {
-                System.out.println(
-                        "MERGED: " + entry.getKey()
-                                + " -> " + entry.getValue());
-            }
-        }
-
-        System.out.println("========================================");
 
         class Candidate {
             final String accountLast4;
