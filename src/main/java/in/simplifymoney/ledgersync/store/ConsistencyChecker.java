@@ -28,70 +28,102 @@ public final class ConsistencyChecker {
         Map<String, NormalizedTxn> docCanonical = retrieveAllDocuments(sqlCanonical);
 
         List<Divergence> divergences = new ArrayList<>();
+        Set<String> matchedSqlKeys = new HashSet<>();
+        Set<String> matchedDocKeys = new HashSet<>();
 
+        Map<Set<String>, String> docByMsgs = new HashMap<>();
+        for (Map.Entry<String, NormalizedTxn> e : docCanonical.entrySet()) {
+            docByMsgs.put(new HashSet<>(e.getValue().sourceMessageIds()), e.getKey());
+        }
+
+        // Pass 1: Match by sourceMessageIds
         for (Map.Entry<String, NormalizedTxn> entry : sqlCanonical.entrySet()) {
-            String key = entry.getKey();
+            String sqlKey = entry.getKey();
             NormalizedTxn sqlTxn = entry.getValue();
-            NormalizedTxn docTxn = docCanonical.get(key);
-
-            if (docTxn == null) {
-                divergences.add(new Divergence(
-                        "missing_in_document_store: " + key,
-                        formatTxn(sqlTxn),
-                        "missing"));
-                continue;
-            }
-
-            if (sqlTxn.amount().compareTo(docTxn.amount()) != 0) {
-                divergences.add(new Divergence(
-                        "amount mismatch on " + key,
-                        sqlTxn.amount().toPlainString(),
-                        docTxn.amount().toPlainString()));
-            }
-
-            if (sqlTxn.category() != docTxn.category()) {
-                divergences.add(new Divergence(
-                        "category mismatch on " + key,
-                        sqlTxn.category().name(),
-                        docTxn.category().name()));
-            }
-
-            if (!sqlTxn.merchant().trim().equalsIgnoreCase(docTxn.merchant().trim())) {
-                divergences.add(new Divergence(
-                        "merchant mismatch on " + key,
-                        sqlTxn.merchant(),
-                        docTxn.merchant()));
-            }
-
-            if (sqlTxn.direction() != docTxn.direction()) {
-                divergences.add(new Divergence(
-                        "direction mismatch on " + key,
-                        sqlTxn.direction().name(),
-                        docTxn.direction().name()));
-            }
-
-            if (!sqlTxn.occurredAt().toInstant().equals(docTxn.occurredAt().toInstant())) {
-                divergences.add(new Divergence(
-                        "occurred_at mismatch on " + key,
-                        sqlTxn.occurredAt().toString(),
-                        docTxn.occurredAt().toString()));
-            }
-
             Set<String> sqlMsgs = new HashSet<>(sqlTxn.sourceMessageIds());
-            Set<String> docMsgs = new HashSet<>(docTxn.sourceMessageIds());
-            if (!sqlMsgs.equals(docMsgs)) {
+
+            String docKey = docByMsgs.get(sqlMsgs);
+            if (docKey != null) {
+                NormalizedTxn docTxn = docCanonical.get(docKey);
+                matchedSqlKeys.add(sqlKey);
+                matchedDocKeys.add(docKey);
+
+                if (sqlTxn.amount().compareTo(docTxn.amount()) != 0) {
+                    divergences.add(new Divergence(
+                            "amount mismatch on " + sqlKey,
+                            sqlTxn.amount().toPlainString(),
+                            docTxn.amount().toPlainString()));
+                }
+                if (sqlTxn.category() != docTxn.category()) {
+                    divergences.add(new Divergence(
+                            "category mismatch on " + sqlKey,
+                            sqlTxn.category().name(),
+                            docTxn.category().name()));
+                }
+                if (!sqlTxn.merchant().trim().equalsIgnoreCase(docTxn.merchant().trim())) {
+                    divergences.add(new Divergence(
+                            "merchant mismatch on " + sqlKey,
+                            sqlTxn.merchant(),
+                            docTxn.merchant()));
+                }
+                if (sqlTxn.direction() != docTxn.direction()) {
+                    divergences.add(new Divergence(
+                            "direction mismatch on " + sqlKey,
+                            sqlTxn.direction().name(),
+                            docTxn.direction().name()));
+                }
+                if (!sqlTxn.occurredAt().toInstant().equals(docTxn.occurredAt().toInstant())) {
+                    divergences.add(new Divergence(
+                            "occurred_at mismatch on " + sqlKey,
+                            sqlTxn.occurredAt().toString(),
+                            docTxn.occurredAt().toString()));
+                }
+            }
+        }
+
+        // Pass 2: Match by canonicalId for the remaining to detect source message mismatch
+        for (Map.Entry<String, NormalizedTxn> entry : sqlCanonical.entrySet()) {
+            String sqlKey = entry.getKey();
+            if (matchedSqlKeys.contains(sqlKey)) continue;
+
+            NormalizedTxn sqlTxn = entry.getValue();
+            NormalizedTxn docTxn = docCanonical.get(sqlKey);
+
+            if (docTxn != null && !matchedDocKeys.contains(sqlKey)) {
+                matchedSqlKeys.add(sqlKey);
+                matchedDocKeys.add(sqlKey);
+
+                Set<String> sqlMsgs = new HashSet<>(sqlTxn.sourceMessageIds());
+                Set<String> docMsgs = new HashSet<>(docTxn.sourceMessageIds());
+                if (!sqlMsgs.equals(docMsgs)) {
+                    divergences.add(new Divergence(
+                            "source_message_ids mismatch on " + sqlKey,
+                            sqlTxn.sourceMessageIds().toString(),
+                            docTxn.sourceMessageIds().toString()));
+                }
+                if (sqlTxn.category() != docTxn.category()) {
+                    divergences.add(new Divergence(
+                            "category mismatch on " + sqlKey,
+                            sqlTxn.category().name(),
+                            docTxn.category().name()));
+                }
+            }
+        }
+
+        // Pass 3: Missing and extra
+        for (Map.Entry<String, NormalizedTxn> entry : sqlCanonical.entrySet()) {
+            if (!matchedSqlKeys.contains(entry.getKey())) {
                 divergences.add(new Divergence(
-                        "source_message_ids mismatch on " + key,
-                        sqlTxn.sourceMessageIds().toString(),
-                        docTxn.sourceMessageIds().toString()));
+                        "missing_in_document_store: " + entry.getKey(),
+                        formatTxn(entry.getValue()),
+                        "missing"));
             }
         }
 
         for (Map.Entry<String, NormalizedTxn> entry : docCanonical.entrySet()) {
-            String key = entry.getKey();
-            if (!sqlCanonical.containsKey(key)) {
+            if (!matchedDocKeys.contains(entry.getKey())) {
                 divergences.add(new Divergence(
-                        "extra_in_document_store: " + key,
+                        "extra_in_document_store: " + entry.getKey(),
                         "missing",
                         formatTxn(entry.getValue())));
             }

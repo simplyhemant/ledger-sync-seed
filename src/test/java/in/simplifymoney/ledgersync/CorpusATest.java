@@ -30,7 +30,16 @@ public class CorpusATest {
         IngestService.Stats stats = ingest.ingestFile(corpus);
 
         assertEquals(522, stats.messagesRead());
-        assertEquals(257, stats.transactionsWritten());
+        // assertEquals(257, stats.transactionsWritten());
+
+        System.out.println("messagesRead = " + stats.messagesRead());
+        System.out.println("transactionsWritten = " + stats.transactionsWritten());
+        System.out.println("messagesSkipped = " + stats.messagesSkipped());
+
+        assertEquals(
+                257,
+                stats.transactionsWritten(),
+                "Actual transactionsWritten = " + stats.transactionsWritten());
 
         List<NormalizedTxn> ledger = store.all();
         assertEquals(257, ledger.size());
@@ -65,7 +74,8 @@ public class CorpusATest {
             BigDecimal running = opening;
             long count = 0;
             for (NormalizedTxn t : ledger) {
-                if (!t.accountLast4().equals(acct)) continue;
+                if (!t.accountLast4().equals(acct))
+                    continue;
                 count++;
                 running = switch (t.direction()) {
                     case DEBIT -> running.subtract(t.amount());

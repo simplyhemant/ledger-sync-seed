@@ -170,6 +170,9 @@ class ConsistencyCheckerTest {
     @Test
     @DisplayName("source message IDs in different order do not create false divergence")
     void sourceMessageIdsOrderInsensitive() {
+        Backfill backfill = new Backfill(sqlStore, docStore);
+        backfill.run();
+
         OffsetDateTime time = OffsetDateTime.parse("2026-07-10T14:00:00+05:30");
         NormalizedTxn sqlTxn = new NormalizedTxn("4821", time, Direction.DEBIT,
                 new BigDecimal("100.00"), Category.SPEND, "STORE", List.of("m-order-1", "m-order-2"));

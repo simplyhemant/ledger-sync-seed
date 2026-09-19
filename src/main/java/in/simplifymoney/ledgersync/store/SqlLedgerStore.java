@@ -32,7 +32,7 @@ public final class SqlLedgerStore implements LedgerStore, AutoCloseable {
     public SqlLedgerStore(Path dbFile) {
         try {
             this.conn = DriverManager.getConnection(
-                    URL_PREFIX + dbFile.toAbsolutePath() + ";MODE=PostgreSQL", "sa", "");
+                    URL_PREFIX + dbFile.toAbsolutePath(), "sa", "");
         } catch (SQLException e) {
             throw new IllegalStateException(
                     "could not open the ledger database at " + dbFile

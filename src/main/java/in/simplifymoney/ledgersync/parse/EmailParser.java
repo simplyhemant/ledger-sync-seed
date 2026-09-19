@@ -20,7 +20,7 @@ public final class EmailParser implements MessageParser {
 
     private static final Pattern DATE_HEADER = Pattern.compile("Date:\\s*([^\\r\\n]+)");
     private static final Pattern TXN_LINE = Pattern.compile(
-            "Your account ending (?<acct>\\d{4}) has been (?<dir>debited|credited) with");
+            "Your account ending (?<acct>\\d{4}) has been (?<dir>debited|credited) with (?:INR|Rs\\.?)\\s*(?<amount>[0-9,]+(?:\\.[0-9]{1,2})?)");
     private static final Pattern MERCHANT_LINE = Pattern.compile(
             "Merchant / Remarks:\\s*([^\\r\\n]+)");
 
@@ -50,7 +50,7 @@ public final class EmailParser implements MessageParser {
         OffsetDateTime at = parseDate(dateMatcher.group(1).trim());
         if (at == null) return Optional.empty();
 
-        BigDecimal amount = Amounts.first(body);
+        BigDecimal amount = new BigDecimal(txnMatcher.group("amount").replace(",", "")).setScale(2);
         if (amount == null) return Optional.empty();
 
         String acct = txnMatcher.group("acct");
@@ -64,7 +64,8 @@ public final class EmailParser implements MessageParser {
     private OffsetDateTime parseDate(String raw) {
         for (DateTimeFormatter fmt : DATE_FORMATS) {
             try {
-                return OffsetDateTime.parse(raw, fmt);
+                OffsetDateTime dt = OffsetDateTime.parse(raw, fmt);
+                return dt.withOffsetSameInstant(Dates.IST);
             } catch (DateTimeParseException ignored) {
             }
         }
